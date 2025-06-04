@@ -1,4 +1,3 @@
-# syntax=docker.io/docker/dockerfile:1
 FROM alpine:3.21 AS core
 RUN apk add --no-cache git
 RUN git clone https://github.com/Dokploy/dokploy.git --depth=1 --branch=main /tmp/source/
