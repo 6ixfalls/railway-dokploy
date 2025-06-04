@@ -1,3 +1,4 @@
+# syntax=docker.io/docker/dockerfile:1
 FROM alpine:3.21 AS core
 RUN apk add --no-cache git
 RUN git clone https://github.com/Dokploy/dokploy.git --depth=1 --branch=main /tmp/source/
@@ -17,7 +18,7 @@ WORKDIR /usr/src/app
 RUN apt-get update && apt-get install -y python3 make g++ git python3-pip pkg-config libsecret-1-dev && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 # Deploy only the dokploy app
 
