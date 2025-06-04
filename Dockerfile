@@ -4,8 +4,8 @@ FROM alpine:3.21 AS core
 RUN apk add --no-cache git
 RUN git clone https://github.com/Dokploy/dokploy.git --depth=1 --branch=$DEPLOY_GIT_TAG /tmp/source/
 WORKDIR /tmp/source
-ADD ./esbuild.diff .
-RUN git apply --ignore-space-change --ignore-whitespace esbuild.diff
+ADD ./server.diff .
+RUN git apply --ignore-space-change --ignore-whitespace server.diff
 
 FROM node:20.9-slim AS base
 ENV PNPM_HOME="/pnpm"

@@ -1,0 +1,59 @@
+diff --git a/apps/dokploy/esbuild.config.ts b/apps/dokploy/esbuild.config.ts
+index 9e6469ca..b8e0e212 100644
+--- a/apps/dokploy/esbuild.config.ts
++++ b/apps/dokploy/esbuild.config.ts
+@@ -1,20 +1,5 @@
+ import esbuild from "esbuild";
+ 
+-import dotenv, { type DotenvParseOutput } from "dotenv";
+-
+-const result = dotenv.config({ path: ".env.production" });
+-
+-function prepareDefine(config: DotenvParseOutput | undefined) {
+-	const define = {};
+-	// @ts-ignore
+-	for (const [key, value] of Object.entries(config)) {
+-		// @ts-ignore
+-		define[`process.env.${key}`] = JSON.stringify(value);
+-	}
+-	return define;
+-}
+-
+-const define = prepareDefine(result.parsed);
+ try {
+ 	esbuild
+ 		.build({
+@@ -31,7 +16,6 @@ try {
+ 			sourcemap: true,
+ 			outdir: "dist",
+ 			tsconfig: "tsconfig.server.json",
+-			define,
+ 			packages: "external",
+ 		})
+ 		.catch(() => {
+diff --git a/packages/server/src/lib/auth.ts b/packages/server/src/lib/auth.ts
+index fb22bb9f..9cbd2f20 100644
+--- a/packages/server/src/lib/auth.ts
++++ b/packages/server/src/lib/auth.ts
+@@ -205,7 +205,7 @@ const { handler, api } = betterAuth({
+ 					const host =
+ 						process.env.NODE_ENV === "development"
+ 							? "http://localhost:3000"
+-							: "https://app.dokploy.com";
++							: process.env.PUBLIC_URL;
+ 					const inviteLink = `${host}/invitation?token=${data.id}`;
+ 
+ 					await sendEmail({
+diff --git a/packages/server/src/services/admin.ts b/packages/server/src/services/admin.ts
+index f6ce9614..0431a1c9 100644
+--- a/packages/server/src/services/admin.ts
++++ b/packages/server/src/services/admin.ts
+@@ -105,7 +105,7 @@ export const removeUserById = async (userId: string) => {
+ 
+ export const getDokployUrl = async () => {
+ 	if (IS_CLOUD) {
+-		return "https://app.dokploy.com";
++		return process.env.PUBLIC_URL;
+ 	}
+ 	const admin = await findAdmin();
+ 
