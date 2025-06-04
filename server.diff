@@ -1,3 +1,17 @@
+diff --git a/apps/dokploy/components/layouts/dashboard-layout.tsx b/apps/dokploy/components/layouts/dashboard-layout.tsx
+index 4e2e15b3..6f47847a 100644
+--- a/apps/dokploy/components/layouts/dashboard-layout.tsx
++++ b/apps/dokploy/components/layouts/dashboard-layout.tsx
+@@ -15,9 +15,6 @@ export const DashboardLayout = ({ children }: Props) => {
+ 	return (
+ 		<>
+ 			<Page>{children}</Page>
+-			{isCloud === true && (
+-				<ChatwootWidget websiteToken="USCpQRKzHvFMssf3p6Eacae5" />
+-			)}
+ 
+ 			{haveRootAccess === true && <ImpersonationBar />}
+ 		</>
 diff --git a/apps/dokploy/esbuild.config.ts b/apps/dokploy/esbuild.config.ts
 index 9e6469ca..b8e0e212 100644
 --- a/apps/dokploy/esbuild.config.ts
