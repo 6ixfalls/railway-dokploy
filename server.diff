@@ -1,32 +1,35 @@
 diff --git a/apps/dokploy/components/layouts/dashboard-layout.tsx b/apps/dokploy/components/layouts/dashboard-layout.tsx
-index 4e2e15b3..6f47847a 100644
+index b65e7dbb..bb78dd9d 100644
 --- a/apps/dokploy/components/layouts/dashboard-layout.tsx
 +++ b/apps/dokploy/components/layouts/dashboard-layout.tsx
-@@ -15,9 +15,6 @@ export const DashboardLayout = ({ children }: Props) => {
+@@ -24,9 +24,6 @@ export const DashboardLayout = ({ children }: Props) => {
  	return (
  		<>
  			<Page>{children}</Page>
--			{isCloud === true && (
+-			{isCloud === true && isUserSubscribed === true && (
 -				<ChatwootWidget websiteToken="USCpQRKzHvFMssf3p6Eacae5" />
 -			)}
  
  			{haveRootAccess === true && <ImpersonationBar />}
  		</>
 diff --git a/apps/dokploy/esbuild.config.ts b/apps/dokploy/esbuild.config.ts
-index 9e6469ca..b8e0e212 100644
+index a1747ac5..76593740 100644
 --- a/apps/dokploy/esbuild.config.ts
 +++ b/apps/dokploy/esbuild.config.ts
-@@ -1,20 +1,5 @@
+@@ -1,24 +1,5 @@
+-import dotenv, { type DotenvParseOutput } from "dotenv";
  import esbuild from "esbuild";
  
--import dotenv, { type DotenvParseOutput } from "dotenv";
--
 -const result = dotenv.config({ path: ".env.production" });
 -
 -function prepareDefine(config: DotenvParseOutput | undefined) {
 -	const define = {};
 -	// @ts-ignore
 -	for (const [key, value] of Object.entries(config)) {
+-		// Skip DATABASE_URL to allow runtime environment variable override
+-		if (key === "DATABASE_URL") {
+-			continue;
+-		}
 -		// @ts-ignore
 -		define[`process.env.${key}`] = JSON.stringify(value);
 -	}
@@ -34,10 +37,11 @@ index 9e6469ca..b8e0e212 100644
 -}
 -
 -const define = prepareDefine(result.parsed);
+-
  try {
  	esbuild
  		.build({
-@@ -31,7 +16,6 @@ try {
+@@ -36,7 +17,6 @@ try {
  			sourcemap: true,
  			outdir: "dist",
  			tsconfig: "tsconfig.server.json",
@@ -46,7 +50,7 @@ index 9e6469ca..b8e0e212 100644
  		})
  		.catch(() => {
 diff --git a/packages/server/src/lib/auth.ts b/packages/server/src/lib/auth.ts
-index fb22bb9f..9cbd2f20 100644
+index 1561c6a2..9e4404a0 100644
 --- a/packages/server/src/lib/auth.ts
 +++ b/packages/server/src/lib/auth.ts
 @@ -205,7 +205,7 @@ const { handler, api } = betterAuth({
