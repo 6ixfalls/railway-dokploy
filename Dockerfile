@@ -7,11 +7,11 @@ WORKDIR /tmp/source
 ADD ./server.diff .
 RUN git apply --ignore-space-change --ignore-whitespace server.diff
 
-FROM node:20.16.0-slim AS base
+FROM node:24.4.0-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
-RUN corepack prepare pnpm@9.12.0 --activate
+RUN corepack prepare pnpm@10.22.0 --activate
 
 FROM base AS build
 COPY --from=core /tmp/source /usr/src/app
@@ -24,12 +24,6 @@ RUN pnpm --filter=@dokploy/server --filter=./apps/dokploy install --frozen-lockf
 
 
 # Deploy only the dokploy app
-ARG NEXT_PUBLIC_UMAMI_HOST
-ENV NEXT_PUBLIC_UMAMI_HOST=$NEXT_PUBLIC_UMAMI_HOST
-
-ARG NEXT_PUBLIC_UMAMI_WEBSITE_ID
-ENV NEXT_PUBLIC_UMAMI_WEBSITE_ID=$NEXT_PUBLIC_UMAMI_WEBSITE_ID
-
 ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 
@@ -37,7 +31,7 @@ ENV NODE_ENV=production
 RUN pnpm --filter=@dokploy/server build
 RUN pnpm --filter=./apps/dokploy run build
 
-RUN pnpm --filter=./apps/dokploy --prod deploy /prod/dokploy
+RUN pnpm --filter=./apps/dokploy --prod deploy --legacy /prod/dokploy
 
 RUN cp -R /usr/src/app/apps/dokploy/.next /prod/dokploy/.next
 RUN cp -R /usr/src/app/apps/dokploy/dist /prod/dokploy/dist
