@@ -1,19 +1,21 @@
 diff --git a/apps/dokploy/components/layouts/dashboard-layout.tsx b/apps/dokploy/components/layouts/dashboard-layout.tsx
-index b65e7dbb..bb78dd9d 100644
+index 222f69b9..677b1605 100644
 --- a/apps/dokploy/components/layouts/dashboard-layout.tsx
 +++ b/apps/dokploy/components/layouts/dashboard-layout.tsx
-@@ -24,9 +24,6 @@ export const DashboardLayout = ({ children }: Props) => {
+@@ -23,11 +23,6 @@ export const DashboardLayout = ({ children }: Props) => {
  	return (
  		<>
  			<Page>{children}</Page>
--			{isCloud === true && isUserSubscribed === true && (
--				<ChatwootWidget websiteToken="USCpQRKzHvFMssf3p6Eacae5" />
+-			{isChatEnabled && (
+-				<>
+-					<HubSpotWidget />
+-				</>
 -			)}
  
  			{haveRootAccess === true && <ImpersonationBar />}
  		</>
 diff --git a/apps/dokploy/esbuild.config.ts b/apps/dokploy/esbuild.config.ts
-index a1747ac5..76593740 100644
+index 615b2bdc..1e74fa44 100644
 --- a/apps/dokploy/esbuild.config.ts
 +++ b/apps/dokploy/esbuild.config.ts
 @@ -1,24 +1,5 @@
@@ -41,7 +43,7 @@ index a1747ac5..76593740 100644
  try {
  	esbuild
  		.build({
-@@ -36,7 +17,6 @@ try {
+@@ -38,7 +19,6 @@ try {
  			sourcemap: true,
  			outdir: "dist",
  			tsconfig: "tsconfig.server.json",
@@ -50,10 +52,10 @@ index a1747ac5..76593740 100644
  		})
  		.catch(() => {
 diff --git a/packages/server/src/lib/auth.ts b/packages/server/src/lib/auth.ts
-index 9c56a7d5..a8e8974e 100644
+index 3dea8f48..699ac2eb 100644
 --- a/packages/server/src/lib/auth.ts
 +++ b/packages/server/src/lib/auth.ts
-@@ -246,7 +246,7 @@ const { handler, api } = betterAuth({
+@@ -325,7 +325,7 @@ const { handler, api } = betterAuth({
  					const host =
  						process.env.NODE_ENV === "development"
  							? "http://localhost:3000"
@@ -63,15 +65,15 @@ index 9c56a7d5..a8e8974e 100644
  
  					await sendEmail({
 diff --git a/packages/server/src/services/admin.ts b/packages/server/src/services/admin.ts
-index 0e861241..467af365 100644
+index 9bc18334..acd80732 100644
 --- a/packages/server/src/services/admin.ts
 +++ b/packages/server/src/services/admin.ts
-@@ -105,7 +105,7 @@ export const removeUserById = async (userId: string) => {
+@@ -106,7 +106,7 @@ export const removeUserById = async (userId: string) => {
  
  export const getDokployUrl = async () => {
  	if (IS_CLOUD) {
 -		return "https://app.dokploy.com";
 +		return process.env.PUBLIC_URL;
  	}
- 	const owner = await findOwner();
+ 	const settings = await getWebServerSettings();
  
