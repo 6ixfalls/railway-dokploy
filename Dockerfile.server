@@ -7,7 +7,7 @@ WORKDIR /tmp/source
 ADD ./server.diff .
 RUN git apply --ignore-space-change --ignore-whitespace server.diff
 
-FROM node:24.4.0-slim AS base
+FROM ghcr.io/6ixfalls/node-caged:25.7.0 AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
