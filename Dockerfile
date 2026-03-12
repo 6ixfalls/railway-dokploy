@@ -10,8 +10,7 @@ RUN git apply --ignore-space-change --ignore-whitespace server.diff
 FROM ghcr.io/6ixfalls/node-caged:25.7.0 AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN npm install -g corepack && corepack enable
-RUN corepack prepare pnpm@10.22.0 --activate
+RUN npm install -g pnpm@10.22.0
 
 FROM base AS build
 COPY --from=core /tmp/source /usr/src/app
