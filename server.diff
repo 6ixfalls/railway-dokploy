@@ -1,29 +1,32 @@
 diff --git a/apps/dokploy/components/layouts/dashboard-layout.tsx b/apps/dokploy/components/layouts/dashboard-layout.tsx
-index 222f69b9..677b1605 100644
 --- a/apps/dokploy/components/layouts/dashboard-layout.tsx
 +++ b/apps/dokploy/components/layouts/dashboard-layout.tsx
-@@ -23,11 +23,6 @@ export const DashboardLayout = ({ children }: Props) => {
- 	return (
- 		<>
- 			<Page>{children}</Page>
--			{isChatEnabled && (
--				<>
--					<HubSpotWidget />
--				</>
--			)}
+@@ -6,3 +6,2 @@
+ import { ImpersonationBar } from "../dashboard/impersonation/impersonation-bar";
+-import { useHubSpotChat } from "../shared/analytics";
+ import Page from "./side";
+@@ -15,13 +14,4 @@
+ 	const { data: haveRootAccess } = api.user.haveRootAccess.useQuery();
+-	const { data: isCloud } = api.settings.isCloud.useQuery();
+ 	const { config: whitelabeling } = useWhitelabeling();
+ 	const appName = whitelabeling?.appName || "Dokploy";
+-	const { data: currentPlan } = api.stripe.getCurrentPlan.useQuery(undefined, {
+-		enabled: isCloud === true,
+-		refetchOnWindowFocus: false,
+-		refetchOnMount: false,
+-		refetchOnReconnect: false,
+-	});
+-	const isChatEnabled = isCloud === true && currentPlan === "startup";
+-	useHubSpotChat(isChatEnabled);
  
- 			{haveRootAccess === true && <ImpersonationBar />}
- 		</>
 diff --git a/apps/dokploy/esbuild.config.ts b/apps/dokploy/esbuild.config.ts
-index 615b2bdc..1e74fa44 100644
 --- a/apps/dokploy/esbuild.config.ts
 +++ b/apps/dokploy/esbuild.config.ts
-@@ -1,24 +1,5 @@
+@@ -1,20 +1,3 @@
 -import dotenv, { type DotenvParseOutput } from "dotenv";
  import esbuild from "esbuild";
  
 -const result = dotenv.config({ path: ".env.production" });
--
 -function prepareDefine(config: DotenvParseOutput | undefined) {
 -	const define = {};
 -	// @ts-ignore
@@ -39,41 +42,81 @@ index 615b2bdc..1e74fa44 100644
 -}
 -
 -const define = prepareDefine(result.parsed);
--
  try {
- 	esbuild
- 		.build({
-@@ -38,7 +19,6 @@ try {
- 			sourcemap: true,
- 			outdir: "dist",
+@@ -38,3 +21,2 @@
  			tsconfig: "tsconfig.server.json",
 -			define,
  			packages: "external",
- 		})
- 		.catch(() => {
+diff --git a/apps/dokploy/pages/_app.tsx b/apps/dokploy/pages/_app.tsx
+--- a/apps/dokploy/pages/_app.tsx
++++ b/apps/dokploy/pages/_app.tsx
+@@ -7,3 +7,2 @@
+ import { SearchCommand } from "@/components/dashboard/search-command";
+-import { Analytics } from "@/components/shared/analytics";
+ import { Toaster } from "@/components/ui/sonner";
+@@ -46,3 +45,2 @@
+ 					<NextTopLoader color="hsl(var(--sidebar-ring))" />
+-					<Analytics />
+ 					<Toaster richColors />
+diff --git a/apps/dokploy/server/utils/stripe.ts b/apps/dokploy/server/utils/stripe.ts
+--- a/apps/dokploy/server/utils/stripe.ts
++++ b/apps/dokploy/server/utils/stripe.ts
+@@ -3,3 +3,3 @@
+ 		? "http://localhost:3000"
+-		: process.env.SITE_URL;
++		: process.env.PUBLIC_URL || process.env.SITE_URL;
+ 
 diff --git a/packages/server/src/lib/auth.ts b/packages/server/src/lib/auth.ts
-index 3dea8f48..699ac2eb 100644
 --- a/packages/server/src/lib/auth.ts
 +++ b/packages/server/src/lib/auth.ts
-@@ -325,7 +325,7 @@ const { handler, api } = betterAuth({
- 					const host =
- 						process.env.NODE_ENV === "development"
- 							? "http://localhost:3000"
--							: "https://app.dokploy.com";
-+							: process.env.PUBLIC_URL;
- 					const inviteLink = `${host}/invitation?token=${data.id}`;
- 
- 					await sendEmail({
+@@ -23,3 +23,2 @@
+ } from "../services/web-server-settings";
+-import { getHubSpotUTK, submitToHubSpot } from "../utils/tracking/hubspot";
+ import {
+@@ -35,3 +34,6 @@
+ 		if (IS_CLOUD) {
+-			return await getTrustedOrigins();
++			const configuredOrigins = [process.env.PUBLIC_URL, process.env.SITE_URL]
++				.filter((origin): origin is string => Boolean(origin))
++				.map((origin) => origin.replace(/\/+$/, ""));
++			return [...configuredOrigins, ...(await getTrustedOrigins())];
+ 		}
+@@ -236,26 +238,2 @@
+ 						});
+-					}
+-					if (IS_CLOUD) {
+-						try {
+-							const hutk = getHubSpotUTK(
+-								context?.request?.headers?.get("cookie") || undefined,
+-							);
+-							// Cast to include additional fields
+-							const userWithFields = user as typeof user & {
+-								lastName?: string;
+-							};
+-							const hubspotSuccess = await submitToHubSpot(
+-								{
+-									email: user.email,
+-									firstName: user.name || "", // name is mapped to firstName column
+-									lastName: userWithFields.lastName || "",
+-								},
+-								hutk,
+-							);
+-							if (!hubspotSuccess) {
+-								console.error("Failed to submit to HubSpot");
+-							}
+-						} catch (error) {
+-							console.error("Error submitting to HubSpot", error);
+-						}
+ 					}
 diff --git a/packages/server/src/services/admin.ts b/packages/server/src/services/admin.ts
-index 9bc18334..acd80732 100644
 --- a/packages/server/src/services/admin.ts
 +++ b/packages/server/src/services/admin.ts
-@@ -106,7 +106,7 @@ export const removeUserById = async (userId: string) => {
- 
- export const getDokployUrl = async () => {
+@@ -102,3 +102,7 @@
  	if (IS_CLOUD) {
 -		return "https://app.dokploy.com";
-+		return process.env.PUBLIC_URL;
++		const cloudUrl = process.env.PUBLIC_URL || process.env.SITE_URL;
++		if (!cloudUrl) {
++			throw new Error("Cloud mode requires PUBLIC_URL or SITE_URL");
++		}
++		return cloudUrl.replace(/\/+$/, "");
  	}
- 	const settings = await getWebServerSettings();
- 
