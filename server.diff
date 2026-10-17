@@ -1,11 +1,17 @@
 diff --git a/apps/dokploy/components/layouts/dashboard-layout.tsx b/apps/dokploy/components/layouts/dashboard-layout.tsx
 --- a/apps/dokploy/components/layouts/dashboard-layout.tsx
 +++ b/apps/dokploy/components/layouts/dashboard-layout.tsx
-@@ -6,3 +6,2 @@
+@@ -4,7 +4,6 @@
+ import { api } from "@/utils/api";
+ import { useWhitelabeling } from "@/utils/hooks/use-whitelabeling";
  import { ImpersonationBar } from "../dashboard/impersonation/impersonation-bar";
 -import { useHubSpotChat } from "../shared/analytics";
  import Page from "./side";
-@@ -15,13 +14,4 @@
+ 
+ interface Props {
+@@ -15,19 +14,8 @@
+ export const DashboardLayout = ({ children, metaName }: Props) => {
+ 	const router = useRouter();
  	const { data: haveRootAccess } = api.user.haveRootAccess.useQuery();
 -	const { data: isCloud } = api.settings.isCloud.useQuery();
  	const { config: whitelabeling } = useWhitelabeling();
@@ -16,17 +22,129 @@ diff --git a/apps/dokploy/components/layouts/dashboard-layout.tsx b/apps/dokploy
 -		refetchOnMount: false,
 -		refetchOnReconnect: false,
 -	});
+-
 -	const isChatEnabled = isCloud === true && currentPlan === "startup";
 -	useHubSpotChat(isChatEnabled);
- 
+-
+ 	const { data: onboardingStatus } = api.project.onboardingStatus.useQuery();
+ 	const shouldRedirectToOnboarding =
+ 		router.pathname !== "/dashboard/home" &&
+diff --git a/apps/dokploy/components/shared/analytics.tsx b/apps/dokploy/components/shared/analytics.tsx
+deleted file mode 100644
+--- a/apps/dokploy/components/shared/analytics.tsx
++++ /dev/null
+@@ -1,102 +0,0 @@
+-import { OpenPanelComponent } from "@openpanel/nextjs";
+-import { useRouter } from "next/router";
+-import Script from "next/script";
+-import { useEffect } from "react";
+-import { GTM_ID, pushToDataLayer } from "@/lib/analytics";
+-import { api } from "@/utils/api";
+-
+-/**
+- * Loads Google Tag Manager, the HubSpot marketing tag, and OpenPanel
+- * product analytics on the cloud version only, and translates tracking
+- * query params appended by the auth/billing flows (?signup=...,
+- * ?subscription=new) into dataLayer events.
+- */
+-export const Analytics = () => {
+-	const router = useRouter();
+-	const { data: isCloud } = api.settings.isCloud.useQuery();
+-
+-	useEffect(() => {
+-		if (!isCloud || !router.isReady) {
+-			return;
+-		}
+-		const { signup, subscription, tier, ...rest } = router.query;
+-
+-		if (typeof signup === "string" && signup.length > 0) {
+-			pushToDataLayer("sign_up", { method: signup });
+-		}
+-		if (subscription === "new") {
+-			pushToDataLayer("new_subscription", {
+-				...(typeof tier === "string" ? { tier } : {}),
+-			});
+-		}
+-		if (signup !== undefined || subscription !== undefined) {
+-			router.replace({ pathname: router.pathname, query: rest }, undefined, {
+-				shallow: true,
+-			});
+-		}
+-	}, [isCloud, router.isReady, router.query, router.pathname, router.replace]);
+-
+-	if (!isCloud) {
+-		return null;
+-	}
+-
+-	return (
+-		<>
+-			<OpenPanelComponent
+-				apiUrl="https://openpanel.dokploy.com/api"
+-				clientId="bf5a178b-7f28-4461-bf47-d63feff15922"
+-				trackScreenViews={true}
+-				trackOutgoingLinks={true}
+-				trackAttributes={true}
+-				globalProperties={{ site: "app" }}
+-			/>
+-			<Script id="analytics-init" strategy="afterInteractive">
+-				{`
+-					window.hsConversationsSettings = { loadImmediately: false };
+-					(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+-					new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+-					j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+-					'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+-					})(window,document,'script','dataLayer','${GTM_ID}');
+-				`}
+-			</Script>
+-			<Script
+-				id="hs-script-loader"
+-				type="text/javascript"
+-				src="//js-eu1.hs-scripts.com/147033433.js"
+-				strategy="lazyOnload"
+-				async
+-				defer
+-			/>
+-		</>
+-	);
+-};
+-
+-/**
+- * The HubSpot script is loaded app-wide for marketing tracking, but the
+- * conversations (chat) widget stays restricted to startup plan customers.
+- */
+-export const useHubSpotChat = (enabled: boolean) => {
+-	useEffect(() => {
+-		if (!enabled) {
+-			return;
+-		}
+-		const loadWidget = () => {
+-			window.HubSpotConversations?.widget.load();
+-		};
+-		if (window.HubSpotConversations) {
+-			loadWidget();
+-		} else {
+-			window.hsConversationsOnReady = [
+-				...(window.hsConversationsOnReady || []),
+-				loadWidget,
+-			];
+-		}
+-		return () => {
+-			window.hsConversationsOnReady = window.hsConversationsOnReady?.filter(
+-				(callback) => callback !== loadWidget,
+-			);
+-			window.HubSpotConversations?.widget.remove();
+-		};
+-	}, [enabled]);
+-};
 diff --git a/apps/dokploy/esbuild.config.ts b/apps/dokploy/esbuild.config.ts
 --- a/apps/dokploy/esbuild.config.ts
 +++ b/apps/dokploy/esbuild.config.ts
-@@ -1,20 +1,3 @@
+@@ -1,23 +1,4 @@
 -import dotenv, { type DotenvParseOutput } from "dotenv";
  import esbuild from "esbuild";
- 
+-
 -const result = dotenv.config({ path: ".env.production" });
+-
 -function prepareDefine(config: DotenvParseOutput | undefined) {
 -	const define = {};
 -	// @ts-ignore
@@ -42,81 +160,470 @@ diff --git a/apps/dokploy/esbuild.config.ts b/apps/dokploy/esbuild.config.ts
 -}
 -
 -const define = prepareDefine(result.parsed);
+ 
  try {
-@@ -38,3 +21,2 @@
+ 	esbuild
+@@ -39,7 +20,6 @@
+ 			sourcemap: true,
+ 			outdir: "dist",
  			tsconfig: "tsconfig.server.json",
 -			define,
  			packages: "external",
+ 		})
+ 		.catch(() => {
+diff --git a/apps/dokploy/lib/analytics.ts b/apps/dokploy/lib/analytics.ts
+deleted file mode 100644
+--- a/apps/dokploy/lib/analytics.ts
++++ /dev/null
+@@ -1,28 +0,0 @@
+-declare global {
+-	interface Window {
+-		dataLayer?: Record<string, unknown>[];
+-		hsConversationsSettings?: {
+-			loadImmediately?: boolean;
+-		};
+-		hsConversationsOnReady?: (() => void)[];
+-		HubSpotConversations?: {
+-			widget: {
+-				load: () => void;
+-				remove: () => void;
+-			};
+-		};
+-	}
+-}
+-
+-export const GTM_ID = "GTM-PWBFB2V2";
+-
+-export const pushToDataLayer = (
+-	event: string,
+-	data: Record<string, unknown> = {},
+-) => {
+-	if (typeof window === "undefined") {
+-		return;
+-	}
+-	window.dataLayer = window.dataLayer || [];
+-	window.dataLayer.push({ event, ...data });
+-};
 diff --git a/apps/dokploy/pages/_app.tsx b/apps/dokploy/pages/_app.tsx
 --- a/apps/dokploy/pages/_app.tsx
 +++ b/apps/dokploy/pages/_app.tsx
-@@ -7,3 +7,2 @@
+@@ -7,7 +7,6 @@
+ import NextTopLoader from "nextjs-toploader";
+ import type { ReactElement, ReactNode } from "react";
  import { SearchCommand } from "@/components/dashboard/search-command";
 -import { Analytics } from "@/components/shared/analytics";
  import { Toaster } from "@/components/ui/sonner";
-@@ -46,3 +45,2 @@
+ import { TooltipProvider } from "@/components/ui/tooltip";
+ import { api } from "@/utils/api";
+@@ -47,7 +46,6 @@
+ 					forcedTheme={Component.theme}
+ 				>
  					<NextTopLoader color="hsl(var(--sidebar-ring))" />
 -					<Analytics />
  					<Toaster richColors />
+ 					<SearchCommand />
+ 					{getLayout(<Component {...pageProps} />)}
+diff --git a/apps/dokploy/pages/invitation.tsx b/apps/dokploy/pages/invitation.tsx
+--- a/apps/dokploy/pages/invitation.tsx
++++ b/apps/dokploy/pages/invitation.tsx
+@@ -22,7 +22,6 @@
+ 	FormMessage,
+ } from "@/components/ui/form";
+ import { Input } from "@/components/ui/input";
+-import { pushToDataLayer } from "@/lib/analytics";
+ import { authClient } from "@/lib/auth-client";
+ import { appRouter } from "@/server/api/root";
+ import { api } from "@/utils/api";
+@@ -143,7 +142,6 @@
+ 
+ 			toast.success("Account created successfully");
+ 			if (isCloud) {
+-				pushToDataLayer("sign_up", { method: "invitation" });
+ 			}
+ 			router.push("/dashboard/home");
+ 		} catch {
+diff --git a/apps/dokploy/pages/register.tsx b/apps/dokploy/pages/register.tsx
+--- a/apps/dokploy/pages/register.tsx
++++ b/apps/dokploy/pages/register.tsx
+@@ -26,7 +26,6 @@
+ 	FormMessage,
+ } from "@/components/ui/form";
+ import { Input } from "@/components/ui/input";
+-import { pushToDataLayer } from "@/lib/analytics";
+ import { authClient } from "@/lib/auth-client";
+ import { appRouter } from "@/server/api/root";
+ import { useWhitelabelingPublic } from "@/utils/hooks/use-whitelabeling";
+@@ -120,7 +119,6 @@
+ 			if (!isCloud) {
+ 				router.push("/");
+ 			} else {
+-				pushToDataLayer("sign_up", { method: "email" });
+ 				setData(data);
+ 			}
+ 		}
+diff --git a/apps/dokploy/server/api/routers/organization.ts b/apps/dokploy/server/api/routers/organization.ts
+--- a/apps/dokploy/server/api/routers/organization.ts
++++ b/apps/dokploy/server/api/routers/organization.ts
+@@ -1,4 +1,5 @@
+ import { db } from "@dokploy/server/db";
++import { getCloudUrl } from "@dokploy/server/lib/cloud-url";
+ import {
+ 	hasValidLicense,
+ 	IS_CLOUD,
+@@ -388,10 +389,7 @@
+ 				.returning();
+ 
+ 			if (IS_CLOUD && created) {
+-				const host =
+-					process.env.NODE_ENV === "development"
+-						? "http://localhost:3000"
+-						: "https://app.dokploy.com";
++				const host = getCloudUrl();
+ 				const inviteLink = `${host}/invitation?token=${created.id}`;
+ 
+ 				const org = await db.query.organization.findFirst({
+diff --git a/apps/dokploy/server/api/routers/stripe.ts b/apps/dokploy/server/api/routers/stripe.ts
+--- a/apps/dokploy/server/api/routers/stripe.ts
++++ b/apps/dokploy/server/api/routers/stripe.ts
+@@ -26,7 +26,7 @@
+ 	STARTUP_BASE_PRICE_ANNUAL_ID,
+ 	STARTUP_BASE_PRICE_MONTHLY_ID,
+ 	STARTUP_PRODUCT_ID,
+-	WEBSITE_URL,
++	getWebsiteUrl,
+ } from "@/server/utils/stripe";
+ import {
+ 	adminProcedure,
+@@ -276,8 +276,8 @@
+ 				billing_address_collection: "required",
+ 				tax_id_collection: { enabled: true },
+ 				allow_promotion_codes: true,
+-				success_url: `${WEBSITE_URL}/dashboard/settings/servers?success=true`,
+-				cancel_url: `${WEBSITE_URL}/dashboard/settings/billing`,
++				success_url: `${getWebsiteUrl()}/dashboard/settings/servers?success=true`,
++				cancel_url: `${getWebsiteUrl()}/dashboard/settings/billing`,
+ 			});
+ 
+ 			return { sessionId: session.id };
+@@ -301,7 +301,7 @@
+ 		try {
+ 			const session = await stripe.billingPortal.sessions.create({
+ 				customer: stripeCustomerId,
+-				return_url: `${WEBSITE_URL}/dashboard/settings/billing`,
++				return_url: `${getWebsiteUrl()}/dashboard/settings/billing`,
+ 			});
+ 
+ 			return { url: session.url };
 diff --git a/apps/dokploy/server/utils/stripe.ts b/apps/dokploy/server/utils/stripe.ts
 --- a/apps/dokploy/server/utils/stripe.ts
 +++ b/apps/dokploy/server/utils/stripe.ts
-@@ -3,3 +3,3 @@
- 		? "http://localhost:3000"
+@@ -1,7 +1,6 @@
+-export const WEBSITE_URL =
+-	process.env.NODE_ENV === "development"
+-		? "http://localhost:3000"
 -		: process.env.SITE_URL;
-+		: process.env.PUBLIC_URL || process.env.SITE_URL;
++import { getCloudUrl } from "@dokploy/server/lib/cloud-url";
++
++export const getWebsiteUrl = getCloudUrl;
  
+ export const BASE_PRICE_MONTHLY_ID = process.env.BASE_PRICE_MONTHLY_ID!;
+ export const BASE_ANNUAL_MONTHLY_ID = process.env.BASE_ANNUAL_MONTHLY_ID!;
+diff --git a/apps/dokploy/server/utils/trial-notifications.ts b/apps/dokploy/server/utils/trial-notifications.ts
+--- a/apps/dokploy/server/utils/trial-notifications.ts
++++ b/apps/dokploy/server/utils/trial-notifications.ts
+@@ -7,7 +7,7 @@
+ import type Stripe from "stripe";
+ import { user } from "@/server/db/schema";
+ import { planFromPriceIds } from "@/server/utils/billing";
+-import { WEBSITE_URL } from "@/server/utils/stripe";
++import { getWebsiteUrl } from "@/server/utils/stripe";
+ 
+ const PLAN_LABELS: Record<string, string> = {
+ 	hobby: "Hobby",
+@@ -61,7 +61,7 @@
+ 			planName: plan ? (PLAN_LABELS[plan] ?? plan) : "Trial",
+ 			daysRemaining,
+ 			endsOn: format(trialEndsAt, "MMM dd, yyyy"),
+-			billingUrl: `${WEBSITE_URL}/dashboard/settings/billing`,
++			billingUrl: `${getWebsiteUrl()}/dashboard/settings/billing`,
+ 		}),
+ 	);
+ 
+diff --git a/packages/server/src/emails/emails/trial-expiring.tsx b/packages/server/src/emails/emails/trial-expiring.tsx
+--- a/packages/server/src/emails/emails/trial-expiring.tsx
++++ b/packages/server/src/emails/emails/trial-expiring.tsx
+@@ -30,7 +30,7 @@
+ 	planName = "Hobby",
+ 	daysRemaining = 3,
+ 	endsOn = "2024-01-01",
+-	billingUrl = "https://app.dokploy.com/dashboard/settings/billing",
++	billingUrl,
+ }: TemplateProps) => {
+ 	const dayLabel = daysRemaining === 1 ? "day" : "days";
+ 	const previewText =
+diff --git a/packages/server/src/emails/emails/verify-email.tsx b/packages/server/src/emails/emails/verify-email.tsx
+--- a/packages/server/src/emails/emails/verify-email.tsx
++++ b/packages/server/src/emails/emails/verify-email.tsx
+@@ -21,7 +21,7 @@
+ 
+ export const VerifyEmailTemplate = ({
+ 	userName = "User",
+-	verificationUrl = "https://app.dokploy.com/verify",
++	verificationUrl,
+ }: TemplateProps) => {
+ 	const previewText = "Verify your email address to get started with Dokploy";
+ 	return (
+diff --git a/packages/server/src/index.ts b/packages/server/src/index.ts
+--- a/packages/server/src/index.ts
++++ b/packages/server/src/index.ts
+@@ -133,7 +133,6 @@
+ export * from "./utils/schedules/utils";
+ export * from "./utils/servers/remote-docker";
+ export * from "./utils/startup/cancel-deployments";
+-export * from "./utils/tracking/hubspot";
+ export * from "./utils/traefik/application";
+ export * from "./utils/traefik/domain";
+ export * from "./utils/traefik/file-types";
 diff --git a/packages/server/src/lib/auth.ts b/packages/server/src/lib/auth.ts
 --- a/packages/server/src/lib/auth.ts
 +++ b/packages/server/src/lib/auth.ts
-@@ -23,3 +23,2 @@
+@@ -23,7 +23,6 @@
+ 	getWebServerSettings,
+ 	updateWebServerSettings,
  } from "../services/web-server-settings";
 -import { getHubSpotUTK, submitToHubSpot } from "../utils/tracking/hubspot";
  import {
-@@ -35,3 +34,6 @@
+ 	sendEmail,
+ 	sendVerificationEmail,
+@@ -31,11 +30,12 @@
+ import { getPublicIpWithFallback } from "../wss/utils";
+ import { ac, adminRole, memberRole, ownerRole } from "./access-control";
+ import { betterAuthSecret } from "./auth-secret";
++import { getCloudUrl } from "./cloud-url";
+ 
+ const resolveTrustedOrigins = async () => {
+ 	try {
  		if (IS_CLOUD) {
 -			return await getTrustedOrigins();
-+			const configuredOrigins = [process.env.PUBLIC_URL, process.env.SITE_URL]
-+				.filter((origin): origin is string => Boolean(origin))
-+				.map((origin) => origin.replace(/\/+$/, ""));
-+			return [...configuredOrigins, ...(await getTrustedOrigins())];
++			return [getCloudUrl(), ...(await getTrustedOrigins())];
  		}
-@@ -236,26 +238,2 @@
- 						});
--					}
--					if (IS_CLOUD) {
--						try {
--							const hutk = getHubSpotUTK(
--								context?.request?.headers?.get("cookie") || undefined,
--							);
--							// Cast to include additional fields
--							const userWithFields = user as typeof user & {
--								lastName?: string;
--							};
--							const hubspotSuccess = await submitToHubSpot(
--								{
--									email: user.email,
--									firstName: user.name || "", // name is mapped to firstName column
--									lastName: userWithFields.lastName || "",
--								},
--								hutk,
--							);
--							if (!hubspotSuccess) {
--								console.error("Failed to submit to HubSpot");
+ 		const [trustedOrigins, settings] = await Promise.all([
+ 			getTrustedOrigins(),
+@@ -65,6 +65,9 @@
+ 
+ const createBetterAuth = () =>
+ 	betterAuth({
++		...(IS_CLOUD && (process.env.PUBLIC_URL || process.env.SITE_URL)
++			? { baseURL: getCloudUrl() }
++			: {}),
+ 		database: drizzleAdapter(db, {
+ 			provider: "pg",
+ 			schema: schema,
+@@ -248,30 +251,6 @@
+ 							});
+ 						}
+ 
+-						if (IS_CLOUD) {
+-							try {
+-								const hutk = getHubSpotUTK(
+-									context?.request?.headers?.get("cookie") || undefined,
+-								);
+-								// Cast to include additional fields
+-								const userWithFields = user as typeof user & {
+-									lastName?: string;
+-								};
+-								const hubspotSuccess = await submitToHubSpot(
+-									{
+-										email: user.email,
+-										firstName: user.name || "", // name is mapped to firstName column
+-										lastName: userWithFields.lastName || "",
+-									},
+-									hutk,
+-								);
+-								if (!hubspotSuccess) {
+-									console.error("Failed to submit to HubSpot");
+-								}
+-							} catch (error) {
+-								console.error("Error submitting to HubSpot", error);
 -							}
--						} catch (error) {
--							console.error("Error submitting to HubSpot", error);
 -						}
- 					}
+ 
+ 						if (isSCIMRequest) {
+ 							const membership = await db.query.member.findFirst({
+diff --git a/packages/server/src/lib/cloud-url.ts b/packages/server/src/lib/cloud-url.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/server/src/lib/cloud-url.ts
+@@ -0,0 +1,22 @@
++/** Resolve the cloud dashboard origin at runtime, without baking it into bundles. */
++export const getCloudUrl = (): string => {
++	const configuredUrl = process.env.PUBLIC_URL || process.env.SITE_URL;
++	if (!configuredUrl) {
++		if (process.env.NODE_ENV === "development") {
++			return "http://localhost:3000";
++		}
++		throw new Error("Set PUBLIC_URL or SITE_URL to the cloud dashboard origin");
++	}
++	const url = new URL(configuredUrl);
++	if (
++		!["http:", "https:"].includes(url.protocol) ||
++		url.username ||
++		url.password ||
++		url.pathname !== "/" ||
++		url.search ||
++		url.hash
++	) {
++		throw new Error("PUBLIC_URL or SITE_URL must be an HTTP(S) origin without a path");
++	}
++	return url.origin;
++};
 diff --git a/packages/server/src/services/admin.ts b/packages/server/src/services/admin.ts
 --- a/packages/server/src/services/admin.ts
 +++ b/packages/server/src/services/admin.ts
-@@ -102,3 +102,7 @@
+@@ -8,6 +8,7 @@
+ import { TRPCError } from "@trpc/server";
+ import { eq } from "drizzle-orm";
+ import { IS_CLOUD } from "../constants";
++import { getCloudUrl } from "../lib/cloud-url";
+ import { getWebServerSettings } from "./web-server-settings";
+ 
+ export const findUserById = async (userId: string) => {
+@@ -106,7 +107,7 @@
+ 
+ export const getDokployUrl = async () => {
  	if (IS_CLOUD) {
 -		return "https://app.dokploy.com";
-+		const cloudUrl = process.env.PUBLIC_URL || process.env.SITE_URL;
-+		if (!cloudUrl) {
-+			throw new Error("Cloud mode requires PUBLIC_URL or SITE_URL");
-+		}
-+		return cloudUrl.replace(/\/+$/, "");
++		return getCloudUrl();
  	}
+ 	const settings = await getWebServerSettings();
+ 
+diff --git a/packages/server/src/utils/tracking/hubspot.ts b/packages/server/src/utils/tracking/hubspot.ts
+deleted file mode 100644
+--- a/packages/server/src/utils/tracking/hubspot.ts
++++ /dev/null
+@@ -1,125 +0,0 @@
+-interface HubSpotFormField {
+-	objectTypeId: string;
+-	name: string;
+-	value: string;
+-}
+-
+-interface HubSpotFormData {
+-	fields: HubSpotFormField[];
+-	context: {
+-		pageUri: string;
+-		pageName: string;
+-		hutk?: string; // HubSpot UTK from cookies
+-	};
+-}
+-
+-interface SignUpFormData {
+-	firstName?: string;
+-	lastName?: string;
+-	email?: string;
+-}
+-
+-/**
+- * Extract HubSpot UTK (User Token) from cookies
+- * This is used for tracking and attribution in HubSpot
+- */
+-export function getHubSpotUTK(cookieHeader?: string): string | null {
+-	if (!cookieHeader) return null;
+-
+-	const name = "hubspotutk=";
+-	const decodedCookie = decodeURIComponent(cookieHeader);
+-	const cookieArray = decodedCookie.split(";");
+-
+-	for (let i = 0; i < cookieArray.length; i++) {
+-		const cookie = cookieArray[i]?.trim();
+-		if (!cookie) continue;
+-		if (cookie.indexOf(name) === 0) {
+-			return cookie.substring(name.length, cookie.length);
+-		}
+-	}
+-	return null;
+-}
+-
+-/**
+- * Convert contact form data to HubSpot form format
+- */
+-export function formatContactDataForHubSpot(
+-	contactData: SignUpFormData,
+-	hutk?: string | null,
+-): HubSpotFormData {
+-	const formData: HubSpotFormData = {
+-		fields: [
+-			{
+-				objectTypeId: "0-1", // Contact object type
+-				name: "firstname",
+-				value: contactData.firstName || "",
+-			},
+-			{
+-				objectTypeId: "0-1",
+-				name: "lastname",
+-				value: contactData.lastName || "",
+-			},
+-			{
+-				objectTypeId: "0-1",
+-				name: "email",
+-				value: contactData.email || "",
+-			},
+-		],
+-		context: {
+-			pageUri: "https://app.dokploy.com/register",
+-			pageName: "Sign Up",
+-		},
+-	};
+-
+-	// Add HubSpot UTK if available
+-	if (hutk) {
+-		formData.context.hutk = hutk;
+-	}
+-
+-	return formData;
+-}
+-
+-/**
+- * Submit form data to HubSpot Forms API
+- */
+-export async function submitToHubSpot(
+-	contactData: SignUpFormData,
+-	hutk?: string | null,
+-): Promise<boolean> {
+-	try {
+-		const portalId = process.env.HUBSPOT_PORTAL_ID;
+-		const formGuid = process.env.HUBSPOT_FORM_GUID;
+-
+-		if (!portalId || !formGuid) {
+-			console.error(
+-				"HubSpot configuration missing: HUBSPOT_PORTAL_ID or HUBSPOT_FORM_GUID not set",
+-			);
+-			return false;
+-		}
+-
+-		const formData = formatContactDataForHubSpot(contactData, hutk);
+-		const response = await fetch(
+-			`https://api.hsforms.com/submissions/v3/integration/submit/${portalId}/${formGuid}`,
+-			{
+-				method: "POST",
+-				headers: {
+-					"Content-Type": "application/json",
+-				},
+-				body: JSON.stringify(formData),
+-			},
+-		);
+-
+-		if (!response.ok) {
+-			const errorText = await response.text();
+-			console.error("HubSpot API error:", response.status, errorText);
+-			return false;
+-		}
+-
+-		const result = await response.json();
+-		console.log("HubSpot submission successful:", result);
+-		return true;
+-	} catch (error) {
+-		console.error("Error submitting to HubSpot:", error);
+-		return false;
+-	}
+-}
