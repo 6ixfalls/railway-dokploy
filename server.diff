@@ -648,6 +648,7 @@ diff --git a/packages/server/src/utils/docker/domain.ts b/packages/server/src/ut
 -					appName,
 -					domain.uniqueConfigKey,
 -				);
++	// Raw Compose is parsed afresh from the saved source on every deployment.
 +	if (compose.sourceType !== "raw") {
 +		for (const domain of domains) {
 +			for (const service of Object.values(result.services ?? {})) {
@@ -667,3 +668,4 @@ diff --git a/packages/server/src/utils/docker/domain.ts b/packages/server/src/ut
  			}
  		}
  	}
+
