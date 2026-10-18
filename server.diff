@@ -627,3 +627,43 @@ deleted file mode 100644
 -		return false;
 -	}
 -}
+diff --git a/packages/server/src/utils/docker/domain.ts b/packages/server/src/utils/docker/domain.ts
+--- a/packages/server/src/utils/docker/domain.ts
++++ b/packages/server/src/utils/docker/domain.ts
+@@ -232,20 +232,23 @@
+ 		result = randomized;
+ 	}
+ 
+-	for (const domain of domains) {
+-		for (const service of Object.values(result.services ?? {})) {
+-			if (compose.composeType === "docker-compose") {
+-				service.labels = removeDomainLabels(
+-					service.labels,
+-					appName,
+-					domain.uniqueConfigKey,
+-				);
+-			} else if (service.deploy) {
+-				service.deploy.labels = removeDomainLabels(
+-					service.deploy.labels,
+-					appName,
+-					domain.uniqueConfigKey,
+-				);
++	if (compose.sourceType !== "raw") {
++		for (const domain of domains) {
++			for (const service of Object.values(result.services ?? {})) {
++				if (compose.composeType === "docker-compose") {
++					service.labels = removeDomainLabels(
++						service.labels,
++						appName,
++						domain.uniqueConfigKey,
++					);
++				} else if (service.deploy) {
++					service.deploy.labels = removeDomainLabels(
++						service.deploy.labels,
++						appName,
++						domain.uniqueConfigKey,
++					);
++				}
+ 			}
+ 		}
+ 	}
