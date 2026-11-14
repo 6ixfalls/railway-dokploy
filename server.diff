@@ -1,7 +1,8 @@
 diff --git a/apps/dokploy/components/layouts/dashboard-layout.tsx b/apps/dokploy/components/layouts/dashboard-layout.tsx
+index 6762f12..c5596ca 100644
 --- a/apps/dokploy/components/layouts/dashboard-layout.tsx
 +++ b/apps/dokploy/components/layouts/dashboard-layout.tsx
-@@ -4,7 +4,6 @@
+@@ -4,7 +4,6 @@ import { useEffect } from "react";
  import { api } from "@/utils/api";
  import { useWhitelabeling } from "@/utils/hooks/use-whitelabeling";
  import { ImpersonationBar } from "../dashboard/impersonation/impersonation-bar";
@@ -9,7 +10,7 @@ diff --git a/apps/dokploy/components/layouts/dashboard-layout.tsx b/apps/dokploy
  import Page from "./side";
  
  interface Props {
-@@ -15,19 +14,8 @@
+@@ -15,19 +14,8 @@ interface Props {
  export const DashboardLayout = ({ children, metaName }: Props) => {
  	const router = useRouter();
  	const { data: haveRootAccess } = api.user.haveRootAccess.useQuery();
@@ -29,14 +30,35 @@ diff --git a/apps/dokploy/components/layouts/dashboard-layout.tsx b/apps/dokploy
  	const { data: onboardingStatus } = api.project.onboardingStatus.useQuery();
  	const shouldRedirectToOnboarding =
  		router.pathname !== "/dashboard/home" &&
+diff --git a/apps/dokploy/components/layouts/user-nav.tsx b/apps/dokploy/components/layouts/user-nav.tsx
+index fc2df4f..1a68544 100644
+--- a/apps/dokploy/components/layouts/user-nav.tsx
++++ b/apps/dokploy/components/layouts/user-nav.tsx
+@@ -1,6 +1,5 @@
+ import { ChevronsUpDown } from "lucide-react";
+ import { useRouter } from "next/router";
+-import { resetPostHog } from "@/components/shared/analytics";
+ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+ import {
+ 	DropdownMenu,
+@@ -149,7 +148,6 @@ export const UserNav = () => {
+ 					className="cursor-pointer"
+ 					onClick={async () => {
+ 						await authClient.signOut().then(() => {
+-							resetPostHog();
+ 							router.push("/");
+ 						});
+ 						// await mutateAsync().then(() => {
 diff --git a/apps/dokploy/components/shared/analytics.tsx b/apps/dokploy/components/shared/analytics.tsx
 deleted file mode 100644
+index 57d09fa..0000000
 --- a/apps/dokploy/components/shared/analytics.tsx
 +++ /dev/null
-@@ -1,102 +0,0 @@
+@@ -1,181 +0,0 @@
 -import { OpenPanelComponent } from "@openpanel/nextjs";
 -import { useRouter } from "next/router";
 -import Script from "next/script";
+-import posthog from "posthog-js";
 -import { useEffect } from "react";
 -import { GTM_ID, pushToDataLayer } from "@/lib/analytics";
 -import { api } from "@/utils/api";
@@ -78,6 +100,7 @@ deleted file mode 100644
 -
 -	return (
 -		<>
+-			<PostHogTracking />
 -			<OpenPanelComponent
 -				apiUrl="https://openpanel.dokploy.com/api"
 -				clientId="bf5a178b-7f28-4461-bf47-d63feff15922"
@@ -106,6 +129,83 @@ deleted file mode 100644
 -			/>
 -		</>
 -	);
+-};
+-
+-const PostHogTracking = () => {
+-	const router = useRouter();
+-	const { data: config } = api.settings.getPostHogConfig.useQuery();
+-	const isDashboard = router.pathname.startsWith("/dashboard");
+-	const { data: member } = api.user.get.useQuery(undefined, {
+-		enabled: !!config && isDashboard,
+-	});
+-	const { data: billingStatus } = api.stripe.getBillingStatus.useQuery(
+-		undefined,
+-		{ enabled: !!config && isDashboard },
+-	);
+-
+-	useEffect(() => {
+-		if (!config || posthog.__loaded) {
+-			return;
+-		}
+-		posthog.init(config.key, {
+-			api_host: config.host,
+-			defaults: "2025-05-24",
+-			person_profiles: "identified_only",
+-			tracing_headers: [window.location.hostname],
+-			// Replay only runs for trial / no-plan users, started below once billing status is known.
+-			disable_session_recording: true,
+-			session_recording: {
+-				maskAllInputs: true,
+-				// Editors, terminals and log viewers render env vars, compose files and secrets as plain text.
+-				maskTextSelector: ".cm-editor, .xterm, pre, code",
+-			},
+-		});
+-	}, [config]);
+-
+-	const userId = member?.user.id;
+-	const email = member?.user.email;
+-	const organizationId = member?.organizationId;
+-	useEffect(() => {
+-		if (!config || !userId || !organizationId) {
+-			return;
+-		}
+-		posthog.identify(userId, { email });
+-		posthog.group("organization", organizationId);
+-	}, [config, userId, email, organizationId]);
+-
+-	const utils = api.useUtils();
+-	useEffect(() => {
+-		// Outside the dashboard (login, register) the next user may be someone else; drop the
+-		// cached billing status so their recording decision never uses the previous user's plan.
+-		if (!isDashboard) {
+-			void utils.stripe.getBillingStatus.reset();
+-		}
+-	}, [isDashboard, utils]);
+-
+-	const shouldRecord =
+-		isDashboard &&
+-		!!billingStatus &&
+-		!billingStatus.isEnterpriseCloud &&
+-		(billingStatus.isOnTrial || !billingStatus.hasActiveAccess);
+-	useEffect(() => {
+-		if (!config || !posthog.__loaded) {
+-			return;
+-		}
+-		if (shouldRecord) {
+-			posthog.startSessionRecording();
+-		} else {
+-			posthog.stopSessionRecording();
+-		}
+-	}, [config, shouldRecord]);
+-
+-	return null;
+-};
+-
+-export const resetPostHog = () => {
+-	if (posthog.__loaded) {
+-		posthog.stopSessionRecording();
+-		posthog.reset();
+-	}
 -};
 -
 -/**
@@ -137,12 +237,13 @@ deleted file mode 100644
 -	}, [enabled]);
 -};
 diff --git a/apps/dokploy/esbuild.config.ts b/apps/dokploy/esbuild.config.ts
+index fa053d7..7db3150 100644
 --- a/apps/dokploy/esbuild.config.ts
 +++ b/apps/dokploy/esbuild.config.ts
-@@ -1,23 +1,4 @@
+@@ -1,24 +1,5 @@
 -import dotenv, { type DotenvParseOutput } from "dotenv";
  import esbuild from "esbuild";
--
+ 
 -const result = dotenv.config({ path: ".env.production" });
 -
 -function prepareDefine(config: DotenvParseOutput | undefined) {
@@ -160,10 +261,11 @@ diff --git a/apps/dokploy/esbuild.config.ts b/apps/dokploy/esbuild.config.ts
 -}
 -
 -const define = prepareDefine(result.parsed);
- 
+-
  try {
  	esbuild
-@@ -39,7 +20,6 @@
+ 		.build({
+@@ -39,7 +20,6 @@ try {
  			sourcemap: true,
  			outdir: "dist",
  			tsconfig: "tsconfig.server.json",
@@ -173,6 +275,7 @@ diff --git a/apps/dokploy/esbuild.config.ts b/apps/dokploy/esbuild.config.ts
  		.catch(() => {
 diff --git a/apps/dokploy/lib/analytics.ts b/apps/dokploy/lib/analytics.ts
 deleted file mode 100644
+index 35663b0..0000000
 --- a/apps/dokploy/lib/analytics.ts
 +++ /dev/null
 @@ -1,28 +0,0 @@
@@ -204,10 +307,35 @@ deleted file mode 100644
 -	window.dataLayer = window.dataLayer || [];
 -	window.dataLayer.push({ event, ...data });
 -};
+diff --git a/apps/dokploy/lib/auth-client.ts b/apps/dokploy/lib/auth-client.ts
+index b03a716..31235c9 100644
+--- a/apps/dokploy/lib/auth-client.ts
++++ b/apps/dokploy/lib/auth-client.ts
+@@ -8,19 +8,9 @@ import {
+ 	twoFactorClient,
+ } from "better-auth/client/plugins";
+ import { createAuthClient } from "better-auth/react";
+-import posthog from "posthog-js";
+ 
+ export const authClient = createAuthClient({
+ 	// baseURL: "http://localhost:3000", // the base url of your auth server
+-	fetchOptions: {
+-		// better-auth's fetch client bypasses posthog-js tracing headers; forward the session so signup links to its replay.
+-		onRequest: (context) => {
+-			if (posthog.__loaded) {
+-				context.headers.set("x-posthog-session-id", posthog.get_session_id());
+-			}
+-			return context;
+-		},
+-	},
+ 	plugins: [
+ 		organizationClient(),
+ 		twoFactorClient(),
 diff --git a/apps/dokploy/pages/_app.tsx b/apps/dokploy/pages/_app.tsx
+index 1451162..6546680 100644
 --- a/apps/dokploy/pages/_app.tsx
 +++ b/apps/dokploy/pages/_app.tsx
-@@ -7,7 +7,6 @@
+@@ -7,7 +7,6 @@ import { ThemeProvider } from "next-themes";
  import NextTopLoader from "nextjs-toploader";
  import type { ReactElement, ReactNode } from "react";
  import { SearchCommand } from "@/components/dashboard/search-command";
@@ -215,7 +343,7 @@ diff --git a/apps/dokploy/pages/_app.tsx b/apps/dokploy/pages/_app.tsx
  import { Toaster } from "@/components/ui/sonner";
  import { TooltipProvider } from "@/components/ui/tooltip";
  import { api } from "@/utils/api";
-@@ -47,7 +46,6 @@
+@@ -47,7 +46,6 @@ const MyApp = ({
  					forcedTheme={Component.theme}
  				>
  					<NextTopLoader color="hsl(var(--sidebar-ring))" />
@@ -224,9 +352,10 @@ diff --git a/apps/dokploy/pages/_app.tsx b/apps/dokploy/pages/_app.tsx
  					<SearchCommand />
  					{getLayout(<Component {...pageProps} />)}
 diff --git a/apps/dokploy/pages/invitation.tsx b/apps/dokploy/pages/invitation.tsx
+index 5a90a28..c396281 100644
 --- a/apps/dokploy/pages/invitation.tsx
 +++ b/apps/dokploy/pages/invitation.tsx
-@@ -22,7 +22,6 @@
+@@ -21,7 +21,6 @@ import {
  	FormMessage,
  } from "@/components/ui/form";
  import { Input } from "@/components/ui/input";
@@ -234,26 +363,29 @@ diff --git a/apps/dokploy/pages/invitation.tsx b/apps/dokploy/pages/invitation.t
  import { authClient } from "@/lib/auth-client";
  import { appRouter } from "@/server/api/root";
  import { api } from "@/utils/api";
-@@ -143,7 +142,6 @@
+@@ -143,9 +142,6 @@ const Invitation = ({
+ 			});
  
  			toast.success("Account created successfully");
- 			if (isCloud) {
+-			if (isCloud) {
 -				pushToDataLayer("sign_up", { method: "invitation" });
- 			}
+-			}
  			router.push("/dashboard/home");
  		} catch {
+ 			toast.error("An error occurred while creating your account");
 diff --git a/apps/dokploy/pages/register.tsx b/apps/dokploy/pages/register.tsx
+index a73122a..0afb0de 100644
 --- a/apps/dokploy/pages/register.tsx
 +++ b/apps/dokploy/pages/register.tsx
-@@ -26,7 +26,6 @@
+@@ -25,7 +25,6 @@ import {
  	FormMessage,
  } from "@/components/ui/form";
  import { Input } from "@/components/ui/input";
 -import { pushToDataLayer } from "@/lib/analytics";
  import { authClient } from "@/lib/auth-client";
  import { appRouter } from "@/server/api/root";
- import { useWhitelabelingPublic } from "@/utils/hooks/use-whitelabeling";
-@@ -120,7 +119,6 @@
+ import { generateServerSideHelper } from "@/utils/create-server-helpers";
+@@ -121,7 +120,6 @@ const Register = ({ isCloud }: Props) => {
  			if (!isCloud) {
  				router.push("/");
  			} else {
@@ -262,15 +394,16 @@ diff --git a/apps/dokploy/pages/register.tsx b/apps/dokploy/pages/register.tsx
  			}
  		}
 diff --git a/apps/dokploy/server/api/routers/organization.ts b/apps/dokploy/server/api/routers/organization.ts
+index 17d168c..3ac76be 100644
 --- a/apps/dokploy/server/api/routers/organization.ts
 +++ b/apps/dokploy/server/api/routers/organization.ts
 @@ -1,4 +1,5 @@
  import { db } from "@dokploy/server/db";
 +import { getCloudUrl } from "@dokploy/server/lib/cloud-url";
  import {
+ 	deleteOrganization,
  	hasValidLicense,
- 	IS_CLOUD,
-@@ -388,10 +389,7 @@
+@@ -398,10 +399,7 @@ export const organizationRouter = createTRPCRouter({
  				.returning();
  
  			if (IS_CLOUD && created) {
@@ -283,9 +416,10 @@ diff --git a/apps/dokploy/server/api/routers/organization.ts b/apps/dokploy/serv
  
  				const org = await db.query.organization.findFirst({
 diff --git a/apps/dokploy/server/api/routers/stripe.ts b/apps/dokploy/server/api/routers/stripe.ts
+index 063349c..9c990ae 100644
 --- a/apps/dokploy/server/api/routers/stripe.ts
 +++ b/apps/dokploy/server/api/routers/stripe.ts
-@@ -26,7 +26,7 @@
+@@ -28,7 +28,7 @@ import {
  	STARTUP_BASE_PRICE_ANNUAL_ID,
  	STARTUP_BASE_PRICE_MONTHLY_ID,
  	STARTUP_PRODUCT_ID,
@@ -294,7 +428,7 @@ diff --git a/apps/dokploy/server/api/routers/stripe.ts b/apps/dokploy/server/api
  } from "@/server/utils/stripe";
  import {
  	adminProcedure,
-@@ -276,8 +276,8 @@
+@@ -290,8 +290,8 @@ export const stripeRouter = createTRPCRouter({
  				billing_address_collection: "required",
  				tax_id_collection: { enabled: true },
  				allow_promotion_codes: true,
@@ -305,7 +439,7 @@ diff --git a/apps/dokploy/server/api/routers/stripe.ts b/apps/dokploy/server/api
  			});
  
  			return { sessionId: session.id };
-@@ -301,7 +301,7 @@
+@@ -315,7 +315,7 @@ export const stripeRouter = createTRPCRouter({
  		try {
  			const session = await stripe.billingPortal.sessions.create({
  				customer: stripeCustomerId,
@@ -315,6 +449,7 @@ diff --git a/apps/dokploy/server/api/routers/stripe.ts b/apps/dokploy/server/api
  
  			return { url: session.url };
 diff --git a/apps/dokploy/server/utils/stripe.ts b/apps/dokploy/server/utils/stripe.ts
+index 078885a..608d557 100644
 --- a/apps/dokploy/server/utils/stripe.ts
 +++ b/apps/dokploy/server/utils/stripe.ts
 @@ -1,7 +1,6 @@
@@ -329,9 +464,10 @@ diff --git a/apps/dokploy/server/utils/stripe.ts b/apps/dokploy/server/utils/str
  export const BASE_PRICE_MONTHLY_ID = process.env.BASE_PRICE_MONTHLY_ID!;
  export const BASE_ANNUAL_MONTHLY_ID = process.env.BASE_ANNUAL_MONTHLY_ID!;
 diff --git a/apps/dokploy/server/utils/trial-notifications.ts b/apps/dokploy/server/utils/trial-notifications.ts
+index 1c7e0e5..8111e42 100644
 --- a/apps/dokploy/server/utils/trial-notifications.ts
 +++ b/apps/dokploy/server/utils/trial-notifications.ts
-@@ -7,7 +7,7 @@
+@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
  import type Stripe from "stripe";
  import { user } from "@/server/db/schema";
  import { planFromPriceIds } from "@/server/utils/billing";
@@ -340,7 +476,7 @@ diff --git a/apps/dokploy/server/utils/trial-notifications.ts b/apps/dokploy/ser
  
  const PLAN_LABELS: Record<string, string> = {
  	hobby: "Hobby",
-@@ -61,7 +61,7 @@
+@@ -61,7 +61,7 @@ export const sendTrialExpiringEmail = async (
  			planName: plan ? (PLAN_LABELS[plan] ?? plan) : "Trial",
  			daysRemaining,
  			endsOn: format(trialEndsAt, "MMM dd, yyyy"),
@@ -350,9 +486,10 @@ diff --git a/apps/dokploy/server/utils/trial-notifications.ts b/apps/dokploy/ser
  	);
  
 diff --git a/packages/server/src/emails/emails/trial-expiring.tsx b/packages/server/src/emails/emails/trial-expiring.tsx
+index 68dd48c..6494f92 100644
 --- a/packages/server/src/emails/emails/trial-expiring.tsx
 +++ b/packages/server/src/emails/emails/trial-expiring.tsx
-@@ -30,7 +30,7 @@
+@@ -30,7 +30,7 @@ export const TrialExpiringEmail = ({
  	planName = "Hobby",
  	daysRemaining = 3,
  	endsOn = "2024-01-01",
@@ -362,9 +499,10 @@ diff --git a/packages/server/src/emails/emails/trial-expiring.tsx b/packages/ser
  	const dayLabel = daysRemaining === 1 ? "day" : "days";
  	const previewText =
 diff --git a/packages/server/src/emails/emails/verify-email.tsx b/packages/server/src/emails/emails/verify-email.tsx
+index c37acb8..0319938 100644
 --- a/packages/server/src/emails/emails/verify-email.tsx
 +++ b/packages/server/src/emails/emails/verify-email.tsx
-@@ -21,7 +21,7 @@
+@@ -21,7 +21,7 @@ export type TemplateProps = {
  
  export const VerifyEmailTemplate = ({
  	userName = "User",
@@ -373,29 +511,19 @@ diff --git a/packages/server/src/emails/emails/verify-email.tsx b/packages/serve
  }: TemplateProps) => {
  	const previewText = "Verify your email address to get started with Dokploy";
  	return (
-diff --git a/packages/server/src/index.ts b/packages/server/src/index.ts
---- a/packages/server/src/index.ts
-+++ b/packages/server/src/index.ts
-@@ -133,7 +133,6 @@
- export * from "./utils/schedules/utils";
- export * from "./utils/servers/remote-docker";
- export * from "./utils/startup/cancel-deployments";
--export * from "./utils/tracking/hubspot";
- export * from "./utils/traefik/application";
- export * from "./utils/traefik/domain";
- export * from "./utils/traefik/file-types";
 diff --git a/packages/server/src/lib/auth.ts b/packages/server/src/lib/auth.ts
+index 79ca082..1c18a55 100644
 --- a/packages/server/src/lib/auth.ts
 +++ b/packages/server/src/lib/auth.ts
-@@ -23,7 +23,6 @@
+@@ -27,7 +27,6 @@ import {
  	getWebServerSettings,
  	updateWebServerSettings,
  } from "../services/web-server-settings";
 -import { getHubSpotUTK, submitToHubSpot } from "../utils/tracking/hubspot";
+ import { captureEvent, getPostHogSessionId } from "../utils/tracking/posthog";
  import {
  	sendEmail,
- 	sendVerificationEmail,
-@@ -31,11 +30,12 @@
+@@ -36,11 +35,12 @@ import {
  import { getPublicIpWithFallback } from "../wss/utils";
  import { ac, adminRole, memberRole, ownerRole } from "./access-control";
  import { betterAuthSecret } from "./auth-secret";
@@ -409,7 +537,19 @@ diff --git a/packages/server/src/lib/auth.ts b/packages/server/src/lib/auth.ts
  		}
  		const [trustedOrigins, settings] = await Promise.all([
  			getTrustedOrigins(),
-@@ -65,6 +65,9 @@
+@@ -70,7 +70,10 @@ const resolveTrustedOrigins = async () => {
+ 
+ const rewriteToCanonicalOrigin = async (url: string): Promise<string> => {
+ 	try {
+-		const configured = process.env.BETTER_AUTH_URL;
++		const configured =
++			IS_CLOUD && (process.env.PUBLIC_URL || process.env.SITE_URL)
++				? getCloudUrl()
++				: process.env.BETTER_AUTH_URL;
+ 		let origin: string | null = configured ?? null;
+ 		if (!origin) {
+ 			const settings = await getWebServerSettings();
+@@ -93,6 +96,9 @@ const rewriteToCanonicalOrigin = async (url: string): Promise<string> => {
  
  const createBetterAuth = () =>
  	betterAuth({
@@ -419,7 +559,7 @@ diff --git a/packages/server/src/lib/auth.ts b/packages/server/src/lib/auth.ts
  		database: drizzleAdapter(db, {
  			provider: "pg",
  			schema: schema,
-@@ -248,30 +251,6 @@
+@@ -322,31 +328,6 @@ const createBetterAuth = () =>
  							});
  						}
  
@@ -447,11 +587,13 @@ diff --git a/packages/server/src/lib/auth.ts b/packages/server/src/lib/auth.ts
 -								console.error("Error submitting to HubSpot", error);
 -							}
 -						}
- 
+-
  						if (isSCIMRequest) {
  							const membership = await db.query.member.findFirst({
+ 								where: eq(schema.member.userId, user.id),
 diff --git a/packages/server/src/lib/cloud-url.ts b/packages/server/src/lib/cloud-url.ts
 new file mode 100644
+index 0000000..a24233c
 --- /dev/null
 +++ b/packages/server/src/lib/cloud-url.ts
 @@ -0,0 +1,22 @@
@@ -478,9 +620,10 @@ new file mode 100644
 +	return url.origin;
 +};
 diff --git a/packages/server/src/services/admin.ts b/packages/server/src/services/admin.ts
+index bf1135d..43dcbc8 100644
 --- a/packages/server/src/services/admin.ts
 +++ b/packages/server/src/services/admin.ts
-@@ -8,6 +8,7 @@
+@@ -8,6 +8,7 @@ import {
  import { TRPCError } from "@trpc/server";
  import { eq } from "drizzle-orm";
  import { IS_CLOUD } from "../constants";
@@ -488,7 +631,7 @@ diff --git a/packages/server/src/services/admin.ts b/packages/server/src/service
  import { getWebServerSettings } from "./web-server-settings";
  
  export const findUserById = async (userId: string) => {
-@@ -106,7 +107,7 @@
+@@ -106,7 +107,7 @@ export const removeUserById = async (userId: string) => {
  
  export const getDokployUrl = async () => {
  	if (IS_CLOUD) {
@@ -497,11 +640,78 @@ diff --git a/packages/server/src/services/admin.ts b/packages/server/src/service
  	}
  	const settings = await getWebServerSettings();
  
+diff --git a/packages/server/src/utils/docker/domain.ts b/packages/server/src/utils/docker/domain.ts
+index 6c4e3c3..b5103a5 100644
+--- a/packages/server/src/utils/docker/domain.ts
++++ b/packages/server/src/utils/docker/domain.ts
+@@ -183,22 +183,30 @@ const removeDomainLabels = (
+ 	labels: DefinitionsService["labels"],
+ 	appName: string,
+ 	uniqueConfigKey: number,
++	preserveBackendScheme: boolean,
+ ) => {
++	const servicePrefix = `traefik.http.services.${appName}-${uniqueConfigKey}-`;
+ 	const prefixes = [
+ 		`traefik.http.routers.${appName}-${uniqueConfigKey}-`,
+-		`traefik.http.services.${appName}-${uniqueConfigKey}-`,
++		servicePrefix,
+ 		`traefik.http.middlewares.stripprefix-${appName}-${uniqueConfigKey}.`,
+ 		`traefik.http.middlewares.addprefix-${appName}-${uniqueConfigKey}.`,
+ 	];
+-	const belongsToDomain = (label: string) =>
+-		prefixes.some((prefix) => label.startsWith(prefix));
++	const keepLabel = (key: string) =>
++		!prefixes.some((prefix) => key.startsWith(prefix)) ||
++		(preserveBackendScheme &&
++			key.startsWith(servicePrefix) &&
++			key.endsWith(".loadbalancer.server.scheme"));
+ 
+ 	if (Array.isArray(labels)) {
+-		return labels.filter((label) => !belongsToDomain(label));
++		return labels.filter((label) => {
++			const [key = ""] = label.split("=", 1);
++			return keepLabel(key);
++		});
+ 	}
+ 	if (labels) {
+ 		return Object.fromEntries(
+-			Object.entries(labels).filter(([label]) => !belongsToDomain(label)),
++			Object.entries(labels).filter(([key]) => keepLabel(key)),
+ 		);
+ 	}
+ 
+@@ -308,18 +316,25 @@ export const addDomainToCompose = async (
+ 	}
+ 
+ 	for (const domain of domains) {
+-		for (const service of Object.values(result.services ?? {})) {
++		for (const [serviceName, service] of Object.entries(result.services ?? {})) {
++			// Keep raw Compose backend schemes for the active service of this domain.
++			const preserveBackendScheme =
++				compose.sourceType === "raw" &&
++				domain.enabled &&
++				serviceName === domain.serviceName;
+ 			if (compose.composeType === "docker-compose") {
+ 				service.labels = removeDomainLabels(
+ 					service.labels,
+ 					appName,
+ 					domain.uniqueConfigKey,
++					preserveBackendScheme,
+ 				);
+ 			} else if (service.deploy) {
+ 				service.deploy.labels = removeDomainLabels(
+ 					service.deploy.labels,
+ 					appName,
+ 					domain.uniqueConfigKey,
++					preserveBackendScheme,
+ 				);
+ 			}
+ 		}
 diff --git a/packages/server/src/utils/tracking/hubspot.ts b/packages/server/src/utils/tracking/hubspot.ts
-deleted file mode 100644
+index 43d0a60..f768148 100644
 --- a/packages/server/src/utils/tracking/hubspot.ts
-+++ /dev/null
-@@ -1,125 +0,0 @@
++++ b/packages/server/src/utils/tracking/hubspot.ts
+@@ -1,129 +1,3 @@
 -interface HubSpotFormField {
 -	objectTypeId: string;
 -	name: string;
@@ -627,45 +837,28 @@ deleted file mode 100644
 -		return false;
 -	}
 -}
-diff --git a/packages/server/src/utils/docker/domain.ts b/packages/server/src/utils/docker/domain.ts
---- a/packages/server/src/utils/docker/domain.ts
-+++ b/packages/server/src/utils/docker/domain.ts
-@@ -232,20 +232,23 @@
- 		result = randomized;
- 	}
+-
+ export type HubSpotDeletionResult =
+ 	| "deleted"
+ 	| "not_found"
+diff --git a/packages/server/src/utils/tracking/posthog.ts b/packages/server/src/utils/tracking/posthog.ts
+index 96e5037..f86c5f7 100644
+--- a/packages/server/src/utils/tracking/posthog.ts
++++ b/packages/server/src/utils/tracking/posthog.ts
+@@ -1,13 +1,11 @@
+ import { createHash } from "node:crypto";
+ import { eq } from "drizzle-orm";
+-import { IS_CLOUD } from "../../constants";
+ import { db } from "../../db";
+ import { deployments, organization } from "../../db/schema";
  
--	for (const domain of domains) {
--		for (const service of Object.values(result.services ?? {})) {
--			if (compose.composeType === "docker-compose") {
--				service.labels = removeDomainLabels(
--					service.labels,
--					appName,
--					domain.uniqueConfigKey,
--				);
--			} else if (service.deploy) {
--				service.deploy.labels = removeDomainLabels(
--					service.deploy.labels,
--					appName,
--					domain.uniqueConfigKey,
--				);
-+	// Raw Compose is parsed afresh from the saved source on every deployment.
-+	if (compose.sourceType !== "raw") {
-+		for (const domain of domains) {
-+			for (const service of Object.values(result.services ?? {})) {
-+				if (compose.composeType === "docker-compose") {
-+					service.labels = removeDomainLabels(
-+						service.labels,
-+						appName,
-+						domain.uniqueConfigKey,
-+					);
-+				} else if (service.deploy) {
-+					service.deploy.labels = removeDomainLabels(
-+						service.deploy.labels,
-+						appName,
-+						domain.uniqueConfigKey,
-+					);
-+				}
- 			}
- 		}
- 	}
+ export const POSTHOG_HOST = "https://us.i.posthog.com";
+-const POSTHOG_PROJECT_KEY = "phc_v5vhiTaD9Pq92jZihu3xoYAhX6VQL97wt5sCCY5FpYVu";
+-
+-export const getPostHogKey = () => (IS_CLOUD ? POSTHOG_PROJECT_KEY : null);
++// Railway builds do not send telemetry to Dokploy’s PostHog project.
++export const getPostHogKey = (): string | null => null;
+ 
+ interface CaptureInput {
+ 	distinctId: string;
 
